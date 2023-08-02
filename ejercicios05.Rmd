@@ -1,0 +1,191 @@
+---
+title: "ejercicios05"
+author: "Valentina Paz Campos Olguín"
+date: "2023-06-22"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+library(magrittr)
+p_load(data.table, fixest, lattice, ggplot2, dplyr)
+```
+
+# Ejercicio 05
+
+## Utilizando una de las distribuciones de probabilidad con las que trabajó en el Ejercicio 3, ver la planilla.
+
+En este caso, se utiliza la distribución Student.
+
+$$
+X \sim t(\nu) 
+$$
+
+**Función de densidad**
+
+$$
+\frac{\Gamma(\frac{(\nu + 1)}{2})}{\sqrt{\nu\pi} \Gamma(\frac{\nu}{2})} (1+\frac{x²}{\nu})^{-\frac{(\nu+1)}{2}}
+$$
+
+**Productoria**
+
+$$
+L(\nu; x_{1}, ..., x_{n}) = \prod_{j=1}^{n}f(x_{j}, \nu) = \prod_{j=1}^{n}\frac{\Gamma(\frac{(\nu + 1)}{2})}{\sqrt{\nu\pi} \Gamma(\frac{\nu}{2})} (1+\frac{x_{j}²}{\nu})^{-\frac{(\nu+1)}{2}}
+$$
+
+$$
+log(L(\nu)
+$$
+
+### 1. Cree un ejemplo de estimación de máxima verosimilitud para **una de las distribuciones de probabilidad seleccionadas. Vea un ejemplo en el siguiente link: ejemplo.**
+
+#### a. Defina una semilla para el generador de números aleatorios.
+
+```{r}
+set.seed(123)
+```
+
+#### b. Cree una muestra aleatoria utilizando la función con prefijo "r" con parámetros fijos $\theta_{0}$.
+
+```{r}
+#Tamaño de la muestra
+N = 100
+
+#Parámetro verdadero de localización
+beta = 2
+
+#Parámetro verdadero de grados de libertad
+sigma_2 = 5
+
+#Se genera muestra aleatoria
+DT <- data.table(X = rt(N, df = 5, ncp = 2),
+                 U = rnorm(N, 0, sqrt(sigma_2))) %>%
+  .[, Y := beta*X + U]
+```
+
+#### c. Implemente y grafique la función *log(L(*$\theta$*))*.
+
+```{r}
+#Se realiza la función de verosimilitud
+log_likelihood <- function(theta, Y, X){
+  X <- as.matrix(X); Y <- as.matrix(Y);
+  N <- nrow(X)
+  beta <- theta[1]
+  sigma_2 <- theta[2]
+  e <- Y - beta*X
+  loglik <- -0.5*N*log(2*pi) - 0.5*N*log(sigma_2) - ((t(e) %*% e)/(2*sigma_2))
+  return(-loglik)
+}
+
+#Se grafica la función de verosimilitud
+log_like_graph <- function(beta, sigma_2){
+  X <- as.matrix(DT$X); Y <- as.matrix(DT$Y);
+  N <- nrow(X)
+  e <- Y - beta*X
+  loglik <- 0.5*N*log(2*pi) - 0.5*N*log(sigma_2) - ((t(e) %*% e)/(2*sigma_2))
+  return(loglik)
+}
+
+log_like_graph <- Vectorize(log_like_graph)
+
+#Crear matriz de valores para graficar beta y sigma
+beta_vals <- seq(-10, 10, by = 1)
+sigma2_vals <- seq(1, 10, by = 1)
+log_vals <- outer(beta_vals, sigma2_vals, log_like_graph)
+
+persp(beta_vals, sigma2_vals, log_vals, theta = 7, phi = 8, r = 500)
+
+```
+
+```{r}
+MLE_estimates <- optim(fn=log_likelihood,     # Función de verosimilitud
+                       par=c(1,1),            # Estimación inicial
+                       lower = c(-Inf, -Inf),     # Límite inferior de los parámetros
+                       upper = c(Inf, Inf),      # Límite superior de los parámetros
+                       hessian=TRUE,          # Devuelve el Hessiano 
+                       method = "L-BFGS-B",   # Entradas personalizadas
+                       Y = DT$Y,                     
+                       X = DT$X)
+
+# Examinar estimaciones
+MLE_par <- MLE_estimates$par
+MLE_SE <- sqrt(diag(solve(MLE_estimates$hessian)))
+MLE <- data.table(param = c("beta", "sigma_2"),
+                  estimates = MLE_par,
+                  sd = MLE_SE)
+
+MLE
+```
+
+```{r}
+log_like_graph_beta <- function(beta){
+  sigma_2 = MLE_par[2]
+  X = as.matrix(DT$X)
+  Y = as.matrix(DT$Y)
+  N = nrow(X)
+  e = Y - beta*X
+  loglik <- -0.5*N*log(2*pi) - 0.5*N*log(sigma_2) - ((t(e) %*% e)/(2*sigma_2))
+  return(loglik)
+}
+
+log_like_graph_sigma2 <- function(sigma_2){
+  beta = MLE_par[1]
+  X = as.matrix(DT$X)
+  Y = as.matrix(DT$Y)
+  N = nrow(X)
+  e = Y - beta*X
+  loglik <- -0.5*N*log(2*pi) - 0.5*N*log(sigma_2) - ((t(e) %*% e)/(2*sigma_2))
+  return(loglik)
+}
+
+#Se vectoriza
+log_like_graph_beta <- Vectorize(log_like_graph_beta)
+log_like_graph_sigma2 <- Vectorize(log_like_graph_sigma2)
+
+#Gráfico
+beta <- ggplot(data = data.frame(beta = 0), mapping = aes(beta = beta)) +
+  stat_function(fun = log_like_graph_beta) + xlim(-40, 40) + theme_bw() +
+  xlab("beta") + ylab("log lik")
+
+sigma2 <- ggplot(data = data.frame(sigma2 = 0), mapping = aes(sigma2 = sigma2)) +
+  stat_function(fun = log_like_graph_sigma2) + xlim(1, 20) + theme_bw() +
+  xlab("sigma2") + ylab("log lik")
+
+beta
+```
+
+```{r}
+sigma2
+```
+
+#### d. Utilice la función *optim()* de R para minimizar *log(L(*$\theta$))*.*
+
+```{r}
+example = rt(N, 5, 2)
+parametros_iniciales <- c(0, 1)
+estimacion <- optim(fn = log_likelihood, par = parametros_iniciales,
+                    hessian = TRUE, method = "BFGS", Y = DT$Y, X = DT$X)
+```
+
+#### e. Compare los parámetros estimados $\theta$ con los parámetros con los que generó la muestra $\theta_{0}$ y concluya.
+
+```{r}
+ncp = estimacion$par[2]
+df = estimacion$par[1]
+
+paste(5, "es el valor inicial.", ncp, "es el valor aproximado.")
+paste(2, "es el valor inicial.", df, "es el valor aproximado.")
+
+error_ncp = ((5 - ncp)/5)*100
+error_df = ((df - 2)/2)*100
+
+paste("El error de ncp es: ", error_ncp, "%")
+paste("El error de df es: ", error_df, "%")
+```
+
+Se puede observar que los parámetros estimados y los parámetros verdaderos tienen una gran similitud, siendo el error del parámetro de los grados de libertad (ncp) un 1.08% y del parámetro de localización (df) es un 6.56%.
+
+Como conclusión final, viendo que el porcentaje de error calculado es muy bajo, el método de estimación de máxima verosimilitud es ideal para poder aproximar valores de distribuciones que no sean la normal.
